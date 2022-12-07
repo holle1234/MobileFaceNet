@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 import numpy as np
 from database.h5_db import H5DB

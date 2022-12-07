@@ -1,9 +1,10 @@
+import numpy as np
 from communication import *
 from math_utils import normalized_sum_array, preprocess_images
 from multiprocessing import Process, Value
 from numpy import vstack, expand_dims
-from cv2.cv2 import cvtColor, COLOR_BGR2RGB
-from pathlib import Path
+from cv2 import cvtColor, COLOR_BGR2RGB
+import tensorflow as tf
 
 
 class Predictor(Process):
@@ -42,7 +43,7 @@ class Predictor(Process):
             return None, None
 
         pre_images = preprocess_images(vstack(images))
-        arrays = self.model(pre_images, training=False)
+        arrays = self.predict(pre_images)
         pointer_array = normalized_sum_array(arrays)
         return pointer_array, images[0][0]
 
@@ -52,7 +53,6 @@ class Predictor(Process):
 
     def insert_to_db(self, a:QueryObject):
         array, sample = self.create_searchable(a.images)
-        # image is in RGB format -> convert before saving
         sample = cvtColor(sample, COLOR_BGR2RGB)
         return self.face_db.insert(array, a.name, sample)
 
@@ -87,13 +87,31 @@ class Predictor(Process):
             response = ErrorObject("Query command not recognized!")
             self.out_q.put(response)
 
+    def load_graph(self, frozen_graph_filename):
+
+        with tf.io.gfile.GFile(frozen_graph_filename, "rb") as f:
+            graph_def = tf.compat.v1.GraphDef()
+            graph_def.ParseFromString(f.read())
+
+        with tf.Graph().as_default() as graph:
+            tf.import_graph_def(graph_def, name="prefix")
+
+        # We access the input and output nodes
+        self.x = graph.get_tensor_by_name('prefix/x:0')
+        self.y = graph.get_tensor_by_name('prefix/model/l2-norm/l2_normalize:0')
+
+        return graph
+
+    def predict(self, images):
+        y_out = self.sess.run(self.y, feed_dict={self.x: images})
+        return y_out
+
     def run(self):
         # load these here so they wont become shared with parent process
         from database import DataBase
         from face_extract import FaceAligner
-        from keras_model import get_model
 
-        self.model = get_model()
+        self.model = self.load_graph(r"frozen_models/simple_frozen_graph.pb")
         self.face_db = DataBase(self.data_path, self.confidence_threshold)
         self.face_aligner = FaceAligner()
 
@@ -101,7 +119,8 @@ class Predictor(Process):
         with self.loaded.get_lock():
             self.loaded.value = True
 
-        # Run infinitely
-        while True:
-            message = self.in_q.get()
-            self.handle_message(message)
+        # launch a Session
+        with tf.compat.v1.Session(graph=self.model) as self.sess:
+            while True:
+                message = self.in_q.get()
+                self.handle_message(message)

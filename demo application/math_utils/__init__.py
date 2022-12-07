@@ -15,5 +15,4 @@ def normalized_sum_array(arrays):
     return normalized
 
 def euclidean(p1, p2):
-    return sqrt(sum(square(p1 - p2), axis=-1)) / 2.0
-
+    return sum(square(p1 - p2), axis=-1) / 2.0

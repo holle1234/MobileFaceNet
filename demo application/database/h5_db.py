@@ -74,6 +74,7 @@ class H5DB:
                 arg_min = e.argmin()
                 val_min = e[arg_min]
 
+                # todo not working!
                 if best_match[-1] > val_min < self.threshold:
                     index = int((self.__chunk_size * ind) + arg_min)
                     best_match[:] = int(keys[arg_min]), index, val_min
